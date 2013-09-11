@@ -1,0 +1,34 @@
+# this file contains a list of directories which are to be backed up
+# it is called from rsync_external.sh script via daily cron job
+# important points to note are 
+# 1) parent directories must be specified.  eg. Services/ must exist on a line before being able to specify a subdir & files
+# 2) in order to backup all files within a directory, each entry must end /***
+# 3) entries can be commented out and rsync will not include them
+
+# Stuff under /mnt/cache/Services:
+Services/
+Services/denyhosts/***
+Services/dropbox/***
+Services/iTunes/***
+Services/locate/***
+Services/logs/***
+Services/MediaMonkey/***
+Services/playlists/***
+- Services/sabnzbd/Downloads/incomplete
+Services/sabnzbd/***
+
+
+# Stuff under user shares /mnt/disk{x}
+Apps/***
+# you have to specify the root dir before it'll backup subdirs.  By not putting *'s at the root level, it wont backup anything actually at /backups root dir level
+Backups/
+Backups/Flash\ Backups/***
+Backups/XBMC/***
+Dropbox/***
+Emulators/***
+Music/***
+Music\ Videos/***
+Music2/***
+MusicTagging/***
+Pictures/***
+Stuff/***
