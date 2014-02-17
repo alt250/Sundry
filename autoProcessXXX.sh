@@ -37,8 +37,22 @@
 #          - assume we want to keep the newer smaller non-720p mp4 just downloaded.  Therefore force an overwrite during move.  Otherwise take
 #          - no action.  Hopefully this will see fewer .mp4 files lurking in the Unknown directory, needing manual tidying.
 # 29/01/14 - changed clean-up files find command. -regexp to -iregexp for caseinsensitive. regex syntax change to extentions 
+# 17/02/14 - rewrote logic for deciding what to do if file already exists at destination; script now uses OVERWRITE and RENAME vers as means to decide what action to take
+#          - added flag to choose whether to call the clean-up sab history child script.
+#          - reworked some of the variables in this script to better describe their use
+#          - changed filename maniuplation so as to avoid call outs to dirname and basename
 
+#This not the extract dir (that is set from sab etc), this is the final location where file must be moved to once the file has been auto-extracted
 DESTDIR=/mnt/eddie/Stuff2
+
+#Should the script overwrite existing target?  0=NO, 1=YES
+OVERWRITE=0
+
+#Set this to have the script decide whether to rename a file (when one exists at destination) by adding timestamp or to silently fail by deleting the newly downloaded file as assumed it's unwanted
+RENAME=1
+
+#Should child script be called to clean up history. 0=NO, 1=YES.  Helpful during debugging.
+CALLCLEANUP=1
 
 if [ ! -z $7 ] && [ $7 -gt 0 ]; then
     echo "post-processing failed, bypassing script"
@@ -48,77 +62,91 @@ fi
 # process files
 echo 
 echo $(date)
-echo "Removing supplimentary files for $1/$3"
+echo "Removing supplimentary files for $1"
 
 # extensions removed:
-# .diz
 # .nfo
+# .diz
 # .url
-# .html
-# .txt/TXT
+# .htm/.html
 # .jpg
+# .png
+# .txt
+# .db
 
-# example:
-# find "/mnt/user/NG/Unknown" -iname "TopGrl.2011.03.07.Lil.Niki.Nymph.XXX.720p.MP4-hUSHhUSH" -regextype posix-awk -regex "(.*\.nfo|.*\.diz)" -exec echo rm -f {} +
-
-# look for files with extensions as per regex, delete them if found
+# look for files with extensions as per below iregex, delete them if found
 echo -n "Cleaning extra support files... "
-find "$1" -regextype posix-extended -iregex '.*\.(nfo|diz|url|htm|html|jpg|png|txt)' -exec rm -f {} +
-
+find "$1" -regextype posix-extended -iregex '.*\.(nfo|diz|url|htm|html|jpg|png|txt|db)' -exec rm -f {} +
 echo -e "Done\n"
 
 # rename extracted file to name of parent directory and move to parent directory
 echo "Renaming extracted file to name of parent directory... "
 while read file
 do
-  parentdir="$(dirname "$1")"
-  directoryname="$(dirname "$file")"
-  new_name="${directoryname##*/}"
-  file_ext=${file##*.}
-  echo "file: $file"
-  echo "new_name: $new_name"
-  echo "file_ext: $file_ext"  
-  echo "parentdir: $parentdir"
-  echo "directoryname: $directoryname"
-  if [ -n "$file_ext" -a  -n "$directoryname" -a -n "$new_name" ]
+
+  # Example.
+  # $1 = /mnt/eddie/cache/NG/Unknown/WhippedAss.14.02.14.Aiden.Starr.And.Sadie.Kennedy.XXX.720p.MP4-KTR
+  # file = /mnt/eddie/cache/NG/Unknown/WhippedAss.14.02.14.Aiden.Starr.And.Sadie.Kennedy.XXX.720p.MP4-KTR/wpa.14.02.14.aiden.starr.and.sadie.kennedy.mp4
+
+  SABEXTRACTDIR=${1%/*}              # /mnt/eddie/cache/NG/Unknown
+  RLS_DIRNAME=${file%/*}             # /mnt/eddie/cache/NG/Unknown/WhippedAss.14.02.14.Aiden.Starr.And.Sadie.Kennedy.XXX.720p.MP4-KTR
+  RLS_FNAME=${file##*/}              # wpa.14.02.14.aiden.starr.and.sadie.kennedy.mp4
+  RLS_EXT=${file##*.}                # mp4
+  RLS_NEW_FNAME=${RLS_DIRNAME##*/}   # WhippedAss.14.02.14.Aiden.Starr.And.Sadie.Kennedy.XXX.720p.MP4-KTR
+  
+  echo "SABEXTRACTDIR: $SABEXTRACTDIR"
+  echo "RLS_DIRNAME  : $RLS_DIRNAME"
+  echo "RLS_FNAME    : $RLS_FNAME"
+  echo "RLS_EXT      : $RLS_EXT"
+  echo "RLS_NEW_FNAME: $RLS_NEW_FNAME" 
+
+  if [ -n "$RLS_EXT" -a  -n "$RLS_DIRNAME" -a -n "$RLS_NEW_FNAME" ]
   then
-    echo "mv $file $parentdir/$new_name.$file_ext"
-    mv "$file" "$parentdir/$new_name.$file_ext"
+    echo "mv $file $SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT"
+    mv "$file" "$SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT"
   fi
 done < <(find "$1" -maxdepth 1 -type f)
 echo -e "Done\n"
 
 # if filename is scene standard and contains XXX, then rename to strip everything after XXX inclusive
 echo -n "Checking for Scene Naming Convention... "
-if [[ "$new_name" == *.XXX.* ]]; then
+if [[ "$RLS_NEW_FNAME" == *.XXX.* ]]; then
   echo "Found"
-  oldscenename="$new_name"
-  echo "Old Name : $new_name"
-  new_name="${oldscenename%.XXX.*}"
-  echo "New Name : $new_name"
-  echo "mv $parentdir/$oldscenename.$file_ext $parentdir/$new_name.$file_ext"
-  mv "$parentdir/$oldscenename.$file_ext" "$parentdir/$new_name.$file_ext"
+  TMP_OLD_FNAME="$RLS_NEW_FNAME"
+  echo "Before : $TMP_OLD_FNAME"           # WhippedAss.14.02.14.Aiden.Starr.And.Sadie.Kennedy.XXX.720p.MP4-KTR
+  RLS_NEW_FNAME="${TMP_OLD_FNAME%.XXX.*}"
+  echo "After  : $RLS_NEW_FNAME"           # WhippedAss.14.02.14.Aiden.Starr.And.Sadie.Kennedy
+  echo "mv $SABEXTRACTDIR/$TMP_OLD_FNAME.$RLS_EXT $SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT"
+  mv "$SABEXTRACTDIR/$TMP_OLD_FNAME.$RLS_EXT" "$SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT"   # /mnt/eddie/cache/NG/Unknown/WhippedAss.14.02.14.Aiden.Starr.And.Sadie.Kennedy.XXX.720p.MP4-KTR.mp4 /mnt/eddie/cache/NG/Unknown/WhippedAss.14.02.14.Aiden.Starr.And.Sadie.Kennedy.mp4
 else
   echo "Not found"
 fi
 echo -e "Done\n"
 
 # move processed file to dest location
-echo "Moving processed file to $DESTDIR... "
-src_file_size=$(stat -c%s "$parentdir/$new_name.$file_ext")
-#echo "Source File Size = $src_file_size"
-if [ -f $DESTDIR/$new_name.$file_ext ]; then # a file already exists at the target location
-  echo "Found file with same name at target location.  Checking file size..."
-  tgt_file_size=$(stat -c%s "$DESTDIR"/"$new_name"."$file_ext")
-  #echo "Target File Size = $src_file_size"
-  if [ "$src_file_size" -lt "$tgt_file_size" ]; then # source file is smaller than target
-    echo "Source file is smaller than target, I'm going to go ahead and assume its safe to overwrite as we want to keep the smaller non-720p version"
-    echo "mv -f $parentdir/$new_name.$file_ext $DESTDIR"
-    mv -f "$parentdir/$new_name.$file_ext" "$DESTDIR"
+if [ -f $DESTDIR/$RLS_NEW_FNAME.$RLS_EXT ]; then  # a file already exists at the target location
+  echo "Found file with same name at target location"
+  if [ $OVERWRITE = 1 ]; then  # OVERWRITE var set, move file to destination with -f force to overwrite existing file
+    echo "OVERWRITE enabled, overwriting existing file"
+    echo "Moving processed file to : $DESTDIR... "
+    echo "mv -f $SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT $DESTDIR" 
+    mv -f "$SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT" "$DESTDIR"
+  else
+    echo "OVERWRITE disabled, existing file will not be overwritten"
+    if [ $RENAME = 1 ]; then  # RENAME var set, copy file to destination and uniquely identify by appending timestamp to the filename
+      echo "RENAME enabled, moving file to destination directory and appending timestamp to file name"
+      echo "mv $SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT $DESTDIR/$RLS_NEW_FNAME-$(date +%d%m%y%H%M).$RLS_EXT"
+      mv "$SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT" "$DESTDIR/$RLS_NEW_FNAME-$(date +%d%m%y%H%M).$RLS_EXT"
+    else
+      echo "RENAME disabled, deleting downloaded file"
+      echo "rm $SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT"
+      rm "$SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT"
+    fi
   fi
 else # no file found at target location, go ahead and move it
-  echo "mv $parentdir/$new_name.$file_ext $DESTDIR"
-  mv "$parentdir/$new_name.$file_ext" "$DESTDIR"
+  echo "Moving processed file to : $DESTDIR... "
+  echo "mv $SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT $DESTDIR"
+  mv "$SABEXTRACTDIR/$RLS_NEW_FNAME.$RLS_EXT" "$DESTDIR"
 fi
 echo -e "Done\n"
 
@@ -134,9 +162,13 @@ fi
 echo -e "Done\n"
 
 # call remove from history child process. spawns child process with no-hangup
-echo "Calling child script to delete entry from SABnzbd history"
-CMDLINE="/bin/bash /opt/sabnzbd/scripts/delfromhist.sh $2 >/dev/null 2>&1"
-echo "CMDLINE: $CMDLINE"
-nohup $CMDLINE > /dev/null 2>&1 &
-echo "Exiting script '$(basename \"${0}\")'"
+if [ $CALLCLEANUP = 1 ]; then
+  echo "Calling child script to delete entry from SABnzbd history"
+  CMDLINE="/bin/bash /opt/sabnzbd/scripts/delfromhist.sh $2 >/dev/null 2>&1"
+  echo "CMDLINE: $CMDLINE"
+  nohup $CMDLINE > /dev/null 2>&1 &
+  echo "Exiting script '$(basename \"${0}\")'"
+else
+  echo "Not calling clean-up script"
+fi
 
